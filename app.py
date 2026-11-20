@@ -1,21 +1,15 @@
-import streamlit as st
+﻿import streamlit as st
 import plotly.graph_objects as go
 from dotenv import load_dotenv
 
-from src.fetcher import ASSETS, fetch_market_data, fetch_asset_news
+from src.fetcher import TRACKED_ASSETS, fetch_market_data, fetch_asset_news
 from src.analytics import compute_anomaly_metrics
-from src.database import (
-    init_db,
-    save_telemetry,
-    get_anomalies_history,
-    get_cached_briefing,
-    save_briefing,
-)
+from src.database import SentinelDatabase
 from src.ai_analyst import generate_executive_briefing
 from src.subscriptions import upsert_subscriber, unsubscribe_email
 
 load_dotenv()
-init_db()
+db = SentinelDatabase()
 
 st.set_page_config(
     page_title="Macro-Economic & Anomaly Sentinel",
@@ -24,7 +18,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Custom Styling ---
 st.markdown(
     """
     <style>
@@ -56,8 +49,8 @@ with st.sidebar:
 
     selected_ticker = st.selectbox(
         "Select Financial Asset / الأصل المالي",
-        options=list(ASSETS.keys()),
-        format_func=lambda k: ASSETS[k],
+        options=list(TRACKED_ASSETS.keys()),
+        format_func=lambda k: TRACKED_ASSETS[k],
     )
 
     lookback_period = st.selectbox(
@@ -96,9 +89,9 @@ with st.sidebar:
         )
         sub_assets = st.multiselect(
             "اختر الأصول للمتابعة",
-            options=list(ASSETS.keys()),
-            default=list(ASSETS.keys()),
-            format_func=lambda k: ASSETS[k],
+            options=list(TRACKED_ASSETS.keys()),
+            default=list(TRACKED_ASSETS.keys()),
+            format_func=lambda k: TRACKED_ASSETS[k],
         )
         col_sub, col_unsub = st.columns(2)
         submitted = col_sub.form_submit_button("✅ اشتراك", use_container_width=True)
@@ -121,7 +114,6 @@ with st.sidebar:
 st.title("📡 Macro-Economic & Anomaly Sentinel")
 st.caption("Deterministic Rolling Z-Score Anomaly Detection & Bilingual Gemini Executive Intelligence")
 
-# --- Data Pipeline Execution ---
 @st.cache_data(ttl=900)
 def load_and_compute(ticker: str, period: str, window: int, threshold: float):
     raw_df = fetch_market_data(ticker=ticker, period=period)
@@ -129,7 +121,7 @@ def load_and_compute(ticker: str, period: str, window: int, threshold: float):
 
 try:
     df_metrics = load_and_compute(selected_ticker, lookback_period, rolling_window, z_threshold)
-    save_telemetry(selected_ticker, df_metrics)
+    db.upsert_telemetry(selected_ticker, df_metrics)
 except Exception as e:
     st.error(f"Telemetry Pipeline Error: {e}")
     st.stop()
@@ -145,44 +137,28 @@ anomaly_days_count = int(df_metrics["Is_Anomaly"].sum())
 
 # --- Top KPI Row ---
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-
 with kpi1:
-    st.metric(
-        label="Latest Close Price",
-        value=f"{latest_close:,.4f}",
-        delta=f"{latest_pct:+.2f}%",
-    )
-
+    st.metric("Latest Close Price", f"{latest_close:,.4f}", f"{latest_pct:+.2f}%")
 with kpi2:
-    st.metric(
-        label=f"{rolling_window}-Day Rolling Mean",
-        value=f"{latest_mean:,.4f}",
-    )
-
+    st.metric(f"{rolling_window}-Day Rolling Mean", f"{latest_mean:,.4f}")
 with kpi3:
     regime_label = "Anomaly Detected" if is_latest_anomaly else "Normal Regime"
     st.metric(
-        label="Current Rolling Z-Score",
-        value=f"{latest_z:+.2f} σ",
-        delta=regime_label,
+        "Current Rolling Z-Score",
+        f"{latest_z:+.2f} σ",
+        regime_label,
         delta_color="inverse" if is_latest_anomaly else "normal",
     )
-
 with kpi4:
-    st.metric(
-        label=f"Anomalies ({lookback_period})",
-        value=f"{anomaly_days_count} Days",
-    )
+    st.metric(f"Anomalies ({lookback_period})", f"{anomaly_days_count} Days")
 
 # --- Interactive Plotly Telemetry Chart ---
-asset_name = ASSETS[selected_ticker]
+asset_name = TRACKED_ASSETS[selected_ticker]
 upper_band = df_metrics["Rolling_Mean"] + (z_threshold * df_metrics["Rolling_Std"])
 lower_band = df_metrics["Rolling_Mean"] - (z_threshold * df_metrics["Rolling_Std"])
 anomalies_df = df_metrics[df_metrics["Is_Anomaly"]]
 
 fig = go.Figure()
-
-# Volatility Band
 fig.add_trace(
     go.Scatter(
         x=df_metrics.index.tolist() + df_metrics.index.tolist()[::-1],
@@ -194,8 +170,6 @@ fig.add_trace(
         name=f"Normal Volatility Band (±{z_threshold}σ)",
     )
 )
-
-# Rolling Mean
 fig.add_trace(
     go.Scatter(
         x=df_metrics.index,
@@ -205,8 +179,6 @@ fig.add_trace(
         name="Rolling Mean (μ)",
     )
 )
-
-# Close Price
 fig.add_trace(
     go.Scatter(
         x=df_metrics.index,
@@ -216,15 +188,13 @@ fig.add_trace(
         name="Close Price",
     )
 )
-
-# Anomaly Markers
 fig.add_trace(
     go.Scatter(
         x=anomalies_df.index,
         y=anomalies_df["Close"],
         mode="markers",
         marker=dict(color="#ef4444", size=9, symbol="diamond", line=dict(color="#ffffff", width=1)),
-        name=f"Statistical Anomaly (|Z| ≥ Threshold)",
+        name="Statistical Anomaly (|Z| ≥ Threshold)",
     )
 )
 
@@ -237,16 +207,13 @@ fig.update_layout(
     xaxis_title="",
     yaxis_title="Price",
 )
-
 st.plotly_chart(fig, use_container_width=True)
 
 # --- Bilingual AI Executive Briefing ---
 st.subheader("🧠 Bilingual AI Executive Briefing / المذكرة التنفيذية الذكية")
-
 force_refresh_ai = st.button("✨ إنشاء / تحديث موجز تنفيذي لـ Gemini")
 
-briefing_data = None if force_refresh_ai else get_cached_briefing(selected_ticker, latest_date_str)
-
+briefing_data = None if force_refresh_ai else db.get_cached_briefing(selected_ticker, latest_date_str)
 if briefing_data is None:
     with st.spinner("Generating Gemini 2.5 Flash executive briefing..."):
         headlines = fetch_asset_news(selected_ticker, limit=3)
@@ -259,7 +226,7 @@ if briefing_data is None:
             is_anomaly=is_latest_anomaly,
             headlines=headlines,
         )
-        save_briefing(selected_ticker, latest_date_str, briefing_data["en"], briefing_data["ar"])
+        db.save_briefing(selected_ticker, latest_date_str, briefing_data["en"], briefing_data["ar"])
 
 col_en, col_ar = st.columns(2)
 with col_en:
@@ -272,7 +239,6 @@ with col_en:
         """,
         unsafe_allow_html=True,
     )
-
 with col_ar:
     st.markdown(
         f"""
@@ -287,7 +253,7 @@ with col_ar:
 # --- Historical Anomalies Audit Table ---
 st.divider()
 with st.expander("🗄️ سجل الشذوذ التاريخي (SQLite Telemetry Audit Log)", expanded=False):
-    history_df = get_anomalies_history(selected_ticker)
+    history_df = db.get_anomalies_history(selected_ticker)
     if not history_df.empty:
         st.dataframe(
             history_df.style.format(
