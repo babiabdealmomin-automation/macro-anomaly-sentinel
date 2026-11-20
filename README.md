@@ -111,7 +111,8 @@ macro-anomaly-sentinel/
    python -m pytest -v
    python -m src.daily_report
    ```
-
+   ## LINK OF DASHBORD
+https://macro-anomaly-sentinel-sjzn53dptpvutlx4pbbuek.streamlit.app/
 ---
 
 ## 👤 Author
