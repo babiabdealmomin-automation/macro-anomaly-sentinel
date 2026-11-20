@@ -2,7 +2,7 @@
 import plotly.graph_objects as go
 from dotenv import load_dotenv
 
-from src.fetcher import TRACKED_ASSETS, fetch_market_data, fetch_asset_news
+from src.fetcher import ASSETS, fetch_market_data, fetch_asset_news
 from src.analytics import compute_anomaly_metrics
 from src.database import SentinelDatabase
 from src.ai_analyst import generate_executive_briefing
@@ -49,8 +49,8 @@ with st.sidebar:
 
     selected_ticker = st.selectbox(
         "Select Financial Asset / الأصل المالي",
-        options=list(TRACKED_ASSETS.keys()),
-        format_func=lambda k: TRACKED_ASSETS[k],
+        options=list(ASSETS.keys()),
+        format_func=lambda k: ASSETS[k],
     )
 
     lookback_period = st.selectbox(
@@ -89,9 +89,9 @@ with st.sidebar:
         )
         sub_assets = st.multiselect(
             "اختر الأصول للمتابعة",
-            options=list(TRACKED_ASSETS.keys()),
-            default=list(TRACKED_ASSETS.keys()),
-            format_func=lambda k: TRACKED_ASSETS[k],
+            options=list(ASSETS.keys()),
+            default=list(ASSETS.keys()),
+            format_func=lambda k: ASSETS[k],
         )
         col_sub, col_unsub = st.columns(2)
         submitted = col_sub.form_submit_button("✅ اشتراك", use_container_width=True)
@@ -153,7 +153,7 @@ with kpi4:
     st.metric(f"Anomalies ({lookback_period})", f"{anomaly_days_count} Days")
 
 # --- Interactive Plotly Telemetry Chart ---
-asset_name = TRACKED_ASSETS[selected_ticker]
+asset_name = ASSETS[selected_ticker]
 upper_band = df_metrics["Rolling_Mean"] + (z_threshold * df_metrics["Rolling_Std"])
 lower_band = df_metrics["Rolling_Mean"] - (z_threshold * df_metrics["Rolling_Std"])
 anomalies_df = df_metrics[df_metrics["Is_Anomaly"]]
@@ -269,3 +269,4 @@ with st.expander("🗄️ سجل الشذوذ التاريخي (SQLite Telemetry
         )
     else:
         st.info("لا توجد حالات شذوذ مسجلة لهذا الأصل حتى الآن.")
+

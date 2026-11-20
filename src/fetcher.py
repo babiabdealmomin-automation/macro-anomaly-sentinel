@@ -31,3 +31,4 @@ def fetch_asset_news(ticker: str, limit: int = 3) -> list[str]:
         if title:
             headlines.append(title)
     return headlines
+TRACKED_ASSETS = ASSETS
