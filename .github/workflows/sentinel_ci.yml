@@ -25,4 +25,4 @@ jobs:
 
       - name: Run Pytest Suite
         run: |
-          pytest -v
+          python -m pytest -v
