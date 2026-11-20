@@ -1,4 +1,4 @@
-import os
+﻿import os
 import re
 from datetime import datetime, timezone
 from supabase import create_client, Client
@@ -8,6 +8,7 @@ def _get_supabase_client() -> Client | None:
     url = os.getenv("SUPABASE_URL", "").strip()
     key = os.getenv("SUPABASE_KEY", "").strip()
     if not url or not key:
+        print(f"[DEBUG] Missing Supabase credentials -> URL set: {bool(url)}, KEY set: {bool(key)}")
         return None
     return create_client(url, key)
 
@@ -65,6 +66,7 @@ def get_active_subscribers() -> list[dict]:
     if not client:
         fallback_email = os.getenv("RECIPIENT_EMAIL", "").strip()
         if fallback_email:
+            print(f"[DEBUG] Using fallback RECIPIENT_EMAIL: {fallback_email}")
             return [{"email": fallback_email, "assets": ["GC=F", "CL=F", "EURUSD=X"]}]
         return []
 
@@ -75,6 +77,8 @@ def get_active_subscribers() -> list[dict]:
             .eq("is_active", True)
             .execute()
         )
+        print(f"[DEBUG] Supabase returned {len(response.data or [])} active subscriber(s).")
         return response.data or []
-    except Exception:
+    except Exception as exc:
+        print(f"[DEBUG] Supabase query failed: {exc}")
         return []

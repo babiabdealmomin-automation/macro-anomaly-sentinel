@@ -1,4 +1,4 @@
-name: Daily Macro Sentinel Email Alert
+﻿name: Daily Macro Sentinel Email Alert
 
 on:
   schedule:
