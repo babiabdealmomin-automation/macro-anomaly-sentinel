@@ -1,94 +1,104 @@
-import sqlite3
+﻿import sqlite3
 from pathlib import Path
 import pandas as pd
 
-DB_PATH = Path("data/sentinel.db")
 
+class SentinelDatabase:
+    def __init__(self, db_path: str = "data/sentinel.db") -> None:
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_tables()
 
-def get_connection() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(DB_PATH)
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.db_path)
 
-
-def init_db() -> None:
-    """إنشاء جداول قاعدة بيانات SQLite إذا لم تكن موجودة."""
-    with get_connection() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS market_telemetry (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticker TEXT NOT NULL,
-                date TEXT NOT NULL,
-                close_price REAL NOT NULL,
-                pct_change REAL NOT NULL,
-                rolling_mean REAL NOT NULL,
-                rolling_std REAL NOT NULL,
-                z_score REAL NOT NULL,
-                is_anomaly INTEGER NOT NULL,
-                UNIQUE(ticker, date)
+    def _init_tables(self) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS telemetry (
+                    ticker TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    close REAL,
+                    pct_change REAL,
+                    rolling_mean REAL,
+                    rolling_std REAL,
+                    z_score REAL,
+                    is_anomaly INTEGER,
+                    PRIMARY KEY (ticker, date)
+                )
+                """
             )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS ai_briefings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticker TEXT NOT NULL,
-                date TEXT NOT NULL,
-                z_score REAL NOT NULL,
-                brief_ar TEXT NOT NULL,
-                brief_en TEXT NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(ticker, date)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS briefings (
+                    ticker TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    brief_en TEXT,
+                    brief_ar TEXT,
+                    PRIMARY KEY (ticker, date)
+                )
+                """
             )
-        """)
-        conn.commit()
 
+    def upsert_telemetry(self, ticker: str, df: pd.DataFrame) -> None:
+        rows = []
+        for idx, row in df.iterrows():
+            date_str = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)
+            rows.append(
+                (
+                    ticker,
+                    date_str,
+                    float(row["Close"]),
+                    float(row["Pct_Change"]) if pd.notna(row["Pct_Change"]) else 0.0,
+                    float(row["Rolling_Mean"]) if pd.notna(row["Rolling_Mean"]) else 0.0,
+                    float(row["Rolling_Std"]) if pd.notna(row["Rolling_Std"]) else 0.0,
+                    float(row["Z_Score"]) if pd.notna(row["Z_Score"]) else 0.0,
+                    int(bool(row["Is_Anomaly"])),
+                )
+            )
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO telemetry
+                (ticker, date, close, pct_change, rolling_mean, rolling_std, z_score, is_anomaly)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
 
-def save_telemetry(ticker: str, df: pd.DataFrame) -> None:
-    """حفظ السلاسل الزمنية والقياسات الإحصائية في SQLite مع تجنب التكرار."""
-    records = [
-        (
-            ticker,
-            idx.strftime("%Y-%m-%d"),
-            float(row["Close"]),
-            float(row["Pct_Change"]),
-            float(row["Rolling_Mean"]),
-            float(row["Rolling_Std"]),
-            float(row["Z_Score"]),
-            int(row["Is_Anomaly"]),
-        )
-        for idx, row in df.iterrows()
-    ]
-    with get_connection() as conn:
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO market_telemetry
-            (ticker, date, close_price, pct_change, rolling_mean, rolling_std, z_score, is_anomaly)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            records,
-        )
-        conn.commit()
+    def get_anomalies_history(self, ticker: str) -> pd.DataFrame:
+        with self._connect() as conn:
+            df = pd.read_sql_query(
+                """
+                SELECT date AS Date, close AS Close, pct_change AS Pct_Change,
+                       rolling_mean AS Rolling_Mean, rolling_std AS Rolling_Std, z_score AS Z_Score
+                FROM telemetry
+                WHERE ticker = ? AND is_anomaly = 1
+                ORDER BY date DESC
+                """,
+                conn,
+                params=(ticker,),
+            )
+        return df
 
+    def get_cached_briefing(self, ticker: str, date_str: str) -> dict | None:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT brief_en, brief_ar FROM briefings WHERE ticker = ? AND date = ?",
+                (ticker, date_str),
+            )
+            row = cur.fetchone()
+        if row:
+            return {"en": row[0], "ar": row[1]}
+        return None
 
-def get_cached_briefing(ticker: str, date_str: str) -> dict[str, str] | None:
-    """استرجاع المذكرة التنفيذية المحفوظة مسبقاً لتقليل استهلاك API."""
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT brief_en, brief_ar FROM ai_briefings WHERE ticker = ? AND date = ?",
-            (ticker, date_str),
-        ).fetchone()
-    if row:
-        return {"en": row[0], "ar": row[1]}
-    return None
-
-
-def save_briefing(ticker: str, date_str: str, z_score: float, brief_en: str, brief_ar: str) -> None:
-    """حفظ المذكرة التنفيذية المولدة في قاعدة البيانات."""
-    with get_connection() as conn:
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO ai_briefings (ticker, date, z_score, brief_en, brief_ar)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (ticker, date_str, z_score, brief_en, brief_ar),
-        )
-        conn.commit()
+    def save_briefing(self, ticker: str, date_str: str, brief_en: str, brief_ar: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO briefings (ticker, date, brief_en, brief_ar)
+                VALUES (?, ?, ?, ?)
+                """,
+                (ticker, date_str, brief_en, brief_ar),
+            )
