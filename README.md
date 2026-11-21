@@ -63,8 +63,12 @@ macro-anomaly-sentinel/
 ```
 
 ---
+   ## 🚀 LINK OF DASHBOARD
+https://macro-anomaly-sentinel-sjzn53dptpvutlx4pbbuek.streamlit.app/
 
-## 🚀 Quick Start (Local Setup)
+# OR
+
+  ## 🚀 Local Setup
 
 1. **Clone the repository:**
    ```bash
@@ -111,8 +115,7 @@ macro-anomaly-sentinel/
    python -m pytest -v
    python -m src.daily_report
    ```
-   ## LINK OF DASHBOARD
-https://macro-anomaly-sentinel-sjzn53dptpvutlx4pbbuek.streamlit.app/
+
 ---
 
 ## 👤 Author
